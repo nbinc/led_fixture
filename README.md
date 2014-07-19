@@ -1,9 +1,6 @@
 led_fixture
 ===========
 
-led_fixture
-===========
-
 Arduino "LED Fixture" Controller 8-9 chanel 8bit PWM each.
 Designed for reef aquarium lighting.
 
