@@ -5,7 +5,6 @@
 // 2014.07.19 v. 2.0 - izlaboju lielu kludu DIMMesanas algoritma, pieliku DIMM rezima indikaciju
 // 2014.07.21 v. 2.1 - koda optimizacija, iznemtas liekas strukturas un mainigie
 
-
 // ~/Documents/Arduino/350W LED Fixture LDD/led_fixture
 
 #define TLC       0    // set to 1 if using 12bit LED DIMMing
