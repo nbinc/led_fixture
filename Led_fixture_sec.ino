@@ -3,16 +3,15 @@
 // 2014.03.30 v. 1.1 - pievienoju individulos kanalu taimerus
 // 2014.06.20 v. 1.2 - partaisiju DIMMeasanu uz 1 sekundes intervalu
 // 2014.07.19 v. 2.0 - izlaboju lielu kludu DIMMesanas algoritma, pieliku DIMM rezima indikaciju
+// 2014.07.21 v. 2.1 - koda optimizacija, iznemtas liekas strukturas un mainigie
+
 
 // ~/Documents/Arduino/350W LED Fixture LDD/led_fixture
 
-// This is for compatibility with both arduino 1.0 and previous versions
-#if defined(ARDUINO) && ARDUINO >= 100
-#include "Arduino.h"
-#else
-#include "WProgram.h"
-#endif
+#define TLC       0    // set to 1 if using 12bit LED DIMMing
+#define SERIAL    0    // set to 1 if need debug data serial output
 
+#include "Arduino.h"
 
 // aquacontroller PIN
 /* Digital In.Out
@@ -65,32 +64,27 @@
 // *********************************************************************************************
 #include <EEPROM.h>
 
+// *********************************************************************************************
+//            TLC 5940 chip
+// *********************************************************************************************
+
+// I started to add 12-bit PWM functionality
+// nothing worked properly yet
+#if TLC
+  #include "Tlc5940.h"
+
+#endif 
 
 // *********************************************************************************************
 //            Temperature
 // *********************************************************************************************
-//#include <OneWire.h>
-/*
-#include <DallasTemperature.h>
- 
-// Data wire is plugged into pin 28 on the Arduino
-#define ONE_WIRE_BUS 28
- 
-// Setup a oneWire instance to communicate with any OneWire devices 
-// (not just Maxim/Dallas temperature ICs)
-OneWire oneWire(ONE_WIRE_BUS);
- 
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature sensors(&oneWire);
-*/
-float temp[]={0,0,0};
+#include <OneWire.h>
+OneWire ds(28);
+
+float temp[]={0,0,0}; // max 3 temperature peobes: Heatsink, Power Supply, reserved
 int temp_counter=0;
 unsigned long temp_time=0; 
 int temperature_mode=0; // temp screen modes 0-hide, 1-show [1] 10,2
-
-
-#include <OneWire.h>
-OneWire  ds(28);
 
 // *********************************************************************************************
 //            Voltage values
@@ -129,7 +123,7 @@ float amps2=0;
 // B -> pin 12 (need PWM)
 #include <QuadEncoder.h>
 QuadEncoder qe(12,11);
-int qe1Move=0;
+int qe1Move=0; // rotary encoder last values
 
 
 // *********************************************************************************************
@@ -174,30 +168,30 @@ int flash_timer=0;
 // koordinates laika un datuma iestadisanai
 int date_line[]={ 1, 1, 1, 2, 2, 2};
 int date_pos[]= { 4, 7,10, 3, 8,11};
-int date_mode=0; // kura pozicija atrodas kursots mainot datumu
 
 int timer_line[]={ 1, 1, 1, 1, 2};
 int timer_pos[]= { 5, 8,11,14, 8};
-int timer_mode=0; // kura pozicija atrodas kursots mainot taimeru
+
 
 int temp_line[]={ 1, 1};
 int temp_pos[]= { 4, 13};
-int temp_mode=0; // kura pozicija atrodas kursots mainot taimeru
+
+
+int cursor_pos=0; // kura pozicija atrodas kursots
 
 // ventilatora izvads
-int pinFan = 30;
+int pinFAN = 30;
 int fan_on=0; //ReadEEPROM(9);
-int fan_off=0; 
+int fan_off=0;//ReadEEPROM(9); 
 int FAN_status=0;
 
-
-int oSec=0;
-
-
-// koordinates screen saver rezima LRD knalu statusiem
+// koordinates screen saver rezima LED knalu statusiem,
+// kad visi uzreiz uz ekr'na
 int LED_line[]={ 1, 1, 1, 1, 2, 2, 2, 2};
 int LED_pos[]= { 1, 5, 9,13, 1, 5, 9,13};
-
+// koordinates uz ekrana bar attelosahani
+int dimm_pos[]= {0,0,8,8};
+int dimm_line[]={1,2,1,2};
 
 
 // gaismas taimeri
@@ -208,7 +202,6 @@ int off_m[]= { 0, 0, 0, 0, 0, 0, 0, 0};
 // sunset taimeri
 int sunset[]={10,10,10,10,10,10,10,10};
 
-float t; // temporary value for second dimming
 
 // *********************************************************************************************
 //            DOG-M LCD Display
@@ -217,7 +210,7 @@ float t; // temporary value for second dimming
 
 // initialize the library with the numbers of the interface pins
 DogLcd lcd(31, 33, 37, 35); //SI, CLK, RS, CSB
-int lcd_pin=13; // LCD background LED pin
+int pinLCD=13; // LCD background LED pin
 
 // custom Character for DOGM 16x3 display
 byte progress[8] = {  B00000,  B11011,  B11011,  B11011,  B11011,  B11011,  B00000}; // ||
@@ -235,9 +228,9 @@ byte       l7[8] = {  B11111,  B11001,  B10111,  B10101,  B10101,  B11001,  B111
 byte       l8[8] = {  B11111,  B10101,  B10101,  B10001,  B10101,  B10101,  B11111}; //H
 
 // menu bar
-byte      br[8] = {  B00000,  B00000,  B11011,  B11011,  B00000,  B00000,  B00000}; // ||
-byte     pr1[8] = {  B11000,  B11000,  B11011,  B11011,  B11000,  B11000,  B00000}; // |.
-byte     pr2[8] = {  B00011,  B00011,  B11011,  B11011,  B00011,  B00011,  B00000}; // .|
+byte       br[8] = {  B00000,  B00000,  B11011,  B11011,  B00000,  B00000,  B00000}; // ||
+byte      pr1[8] = {  B11000,  B11000,  B11011,  B11011,  B11000,  B11000,  B00000}; // |.
+byte      pr2[8] = {  B00011,  B00011,  B11011,  B11011,  B00011,  B00011,  B00000}; // .|
 
 
 
@@ -303,19 +296,14 @@ int lcd_min=50;  // min (darknes) :CD bright -> go to screen slip mode
 // white, Royal Blue.., Blue, Royal Blue.,
 // Red, Green, UV, Royal Blue
 
-int DIMM_pin[]=   { 10,  9,  8,  7,  6,  5,  4,  3, 2};
-int DIMM_value[]= { 76,128,220,150, 20,100,200, 36, 128};
-int DIMM_actual[]={  0,  0,  0,  0,  0,  0,  0,  0, 128};
-int DIMM_temp[]=  { -1, -1, -1, -1, -1, -1, -1, -1, -1};
+int DIMM_pin[]=     { 10,  9,  8,  7,  6,  5,  4,  3,  2 };
+int DIMM_value[]=   { 76,128,220,150, 20,100,200, 36,128 };
+int DIMM_actual[]=  {  0,  0,  0,  0,  0,  0,  0,  0,128 };
+int DIMM_temp[]=    { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+int sunset_actual[]={  0,  0,  0,  0,  0,  0,  0,  0,  0 };
+int DIMM_status[]=  {  0,  0,  0,  0,  0,  0,  0,  0,  0 };
 
-int sunset_actual[]={  0,  0,  0,  0,  0,  0,  0,  0, 0};
 
-int DIMM_tmp[]=   { 0, 0, 0, 0, 0, 0, 0, 0, 0};
-int DIMM_status[]={ 0, 0, 0, 0, 0, 0, 0, 0, 0};
-
-// koordinates uz ekrana bar attelosahani
-int dimmP[]={0,0,8,8};
-int dimmL[]={1,2,1,2};
 
 
 // kanalu krasas nosaukums
@@ -334,7 +322,6 @@ char* DIMM_text[] ={
 
 
 int DIMM_active=0;
-int DIMM_value_0ld;
 int DIMM_increment_B=8.5;     //solis liela grafika dimmesanai
 int DIMM_increment_S=18.2;    //solis mazaa grafika dimmesanai
 int DIMM_increment=0;         // tekoshais solis
@@ -347,27 +334,28 @@ int cha_incr=0; // otram ranalu komplektam jabut 4
 int hour2 = 0;
 int minute2 = 0;
 int second2 = 0;
-int manual_on=2; // mode
+int manual_on=2; // LED light modes: on-1, off-0, auto-2
 
-// *****************************************************************************************
+// *********************************************************************************************
+//            S E T U P 
+// *********************************************************************************************
+
 void setup() {
   Wire.begin(); // Establece la velocidad de datos del bus I2C
-  Serial.begin(9600);
+  #if SERIAL
+    Serial.begin(9600);
+    Serial.println('Serial begin'); 
+  #endif   
+  
+
 
 // pin modes
-  pinMode(lcd_pin, OUTPUT);
-  pinMode(pinFan, OUTPUT);
-  
-  for (int i=0; i<=8; i++){
-    pinMode(DIMM_pin[i], OUTPUT);
-  }
-
-
-
+  pinMode(pinLCD, OUTPUT);      // LCD screen background
+  pinMode(pinFAN, OUTPUT);      // FAN on/off
 
   // set up the LCD
   lcd.begin(DOG_LCD_M163, 0x27); // contrast from 0x1A to 0x28
-  analogWrite(lcd_pin, lcd_max);  // set LCD display background light to maximum 
+  analogWrite(pinLCD, lcd_max);  // set LCD display background light to maximum 
 
   // create custom char
   lcd.createChar(0, progress);
@@ -384,20 +372,17 @@ void setup() {
   lcd.noCursor();
   lcd.noAutoscroll();
 
-
-  // Print a message to the LCD.
-  //lcd.print("LED Light");
   ShowMenu();  
 
   RTC.stop();
   RTC.start(); 
   
   // load chanel data
-  for (int i=0; i<=7; i++){ //0-7 LED
+  for (int i=0; i<=8; i++){ //0-7 LED, 8 - moon led
     ReadEEPROM(i);
+    pinMode(DIMM_pin[i], OUTPUT);
   }
- ReadEEPROM(8); // load moon data
- ReadEEPROM(9); // load fan temperature data
+  ReadEEPROM(9); // load fan temperature data
 
   SetMenu();
 
@@ -417,12 +402,10 @@ void loop() {
   Button = ' ';
   if(key) { // same as if (key != NO_KEY)
     Button=key;
-    Pogas ();
     timeout=0;
-    
-    Serial.println(Button);
-    
+    //Serial.println(Button);
   }  
+  // rotary encoder
   if (qe1Move=='>') timeout=0;
   if (qe1Move=='<') timeout=0;
 
@@ -436,7 +419,7 @@ void loop() {
     SetMenu();
     ShowMenu();
 
-    analogWrite(lcd_pin, lcd_max);
+    analogWrite(pinLCD, lcd_max);
   } 
 
   if (Button=='1') { // set screensaver active
@@ -446,7 +429,7 @@ void loop() {
     lcd.clear();
    // lcd.setCursor(4, 0);
    // lcd.print("Reef LED");
-    analogWrite(lcd_pin, lcd_min);
+    analogWrite(pinLCD, lcd_min);
   } 
 
   if (Button=='2') { // manual modes
@@ -469,19 +452,19 @@ void loop() {
             Set1();
             cha_incr=0;
             temperature_mode=3;
-            DimmingStart();
+            DIMM_Init();
           }
           if (menu_mode==2) {// color B
             Set2();
             cha_incr=4;
             temperature_mode=3;
-            DimmingStart();
+            DIMM_Init();
           }
           if (menu_mode==3) {// moon light
             SetBar();
             DimmingBIGStart();
             temperature_mode=3;
-            timer_mode=0;
+            cursor_pos=0;
           }
                    
           
@@ -490,8 +473,18 @@ void loop() {
             lcd.print(flash_txt);
             
             temperature_mode=1;
-            temp_mode=0;
-            printTemp();
+            cursor_pos=0;
+              // print mode screen
+              lcd.setCursor(0, 1);
+              lcd.print("On: ");
+              lcd.print(fan_on);
+              lcd.print((char)223);
+              lcd.setCursor(8, 1);
+              lcd.print("Off: ");
+              lcd.print(fan_off);
+              lcd.print((char)223);
+              lcd.setCursor(1, 2);
+              lcd.print("Current: ");
           }
 
 
@@ -499,7 +492,7 @@ void loop() {
             lcd.setCursor(0, 0);
             lcd.print(flash_txt);
             temperature_mode=3;        
-            date_mode=0;
+            cursor_pos=0;
             printTimeOnly();
           }
 
@@ -507,7 +500,7 @@ void loop() {
             SetBar();
             temperature_mode=3;
             DimmingBIGStart();
-            timer_mode=0;
+            cursor_pos=0;
           }
         }
     } else if (menu_mode==-2) { // screen saver
@@ -529,17 +522,11 @@ void loop() {
 }  
 
 
-
-
-
-
-  if (timeout>50 && menu_mode==0) {   // iesledzas screensaver
+  if (timeout>50 && menu_mode==0) {   // screensaver on
     flash=2;
     menu_mode=-2;
     lcd.clear();
-   // lcd.setCursor(4, 0);
-   // lcd.print("Reef LED");
-    analogWrite(lcd_pin, lcd_min);
+    analogWrite(pinLCD, lcd_min);
     SetBar();
   }
 
@@ -548,18 +535,17 @@ void loop() {
   currentMillis = millis();
   if(currentMillis - previousMillis > interval) {
     previousMillis = currentMillis;
-    
-    Flash();
+    Flash(); // cursor imitation - blinking active element
   } 
 
 
+// the procedures to each cycle 
   if(currentMillis - previousMillis2 > interval2) {
     previousMillis2 = currentMillis;
-    
-    Watch(); // aizejam uz taimeriem
-    Termo();
-    Voltage(); // skatamies Voltus uz barosanas blokiem
-    PrintStatus(); // drukajam uz ekrana parametrus
+    Watch(); // light timers
+    Termo(); // temperature
+    Voltage(); // voltage + current from power suply
+    PrintStatus(); // show status un screen
   }
  
   
@@ -589,6 +575,19 @@ String toTriple(int a){
 // *********************************************************************************************
 //            Ekrana 2 pedeju liniju attirisana
 // *********************************************************************************************
+
+void CLS() {
+  lcd.setCursor(0, 1);
+  lcd.print("                ");
+  lcd.setCursor(0, 2);
+  lcd.print("                ");  
+}
+
+
+// *********************************************************************************************
+//            Custom Character setup
+// *********************************************************************************************
+
 
 void Set1(){ // set A B C D
   lcd.createChar(4, l1);
@@ -624,15 +623,6 @@ void SetBar() { // progress bar sey to LED DIMMING style
 }
 
 
-void CLS() {
-  lcd.setCursor(0, 1);
-  lcd.print("                ");
-  lcd.setCursor(0, 2);
-  lcd.print("                ");  
-}
-
-
-
 
 // *********************************************************************************************
 //            MENU
@@ -665,20 +655,7 @@ void ShowMenu(){
     lcd.setCursor(0, flash_line); // poz, rinda
     lcd.print("<              >");
 
-    // show menu scrollbar
-    /*
-    lcd.setCursor((15-menu_size)/2,2); // poz, rinda
-    for (int i=0; i<=menu_size; i++){
-      if (i!=menu_pos) {
-        lcd.print(".");
-      } 
-      else {
-        lcd.write(161);
-      }
-    }
-*/
     MenuPos(menu_size, menu_pos);
-
 
     flash_txt=menu_text[menu_pos];
     flash_pos=(16-flash_txt.length())/2;
@@ -709,12 +686,7 @@ void MenuPos(int a, int b) {// a cik kopa, b= kura vieta
       lcd.write(2); 
     } //2
   }
-/*
-  if (b+d+1!=b+15) { // 7 cik zimigas pozicijas aiznjem BAR
-    lcd.setCursor(b+d+1, c);
-    lcd.write(" ");
-  } 
-*/
+
 
 }
 
@@ -735,8 +707,6 @@ void Flash(){
       }
       // palielinam intervalu
       timeout++;
-      //  lcd.setCursor(0, 2);
-      //  lcd.print(timeout);
     } 
     else {
       lcd.setCursor(flash_pos, flash_line);
@@ -745,7 +715,7 @@ void Flash(){
       if (menu_mode==1 || menu_mode==2) {
         lcd.write(cha+4);
       } else if (menu_mode>=8 && menu_mode<=15) {
-        if (timer_mode==0){
+        if (cursor_pos==0){
           lcd.write(3);
         } else {
           lcd.print(flash_txt);
@@ -761,46 +731,8 @@ void Flash(){
   } 
   if (flash==2){ // iesl'dzas screensacer
     //printTime();
-    //printActualA();
   }
 
-}
-
-// *********************************************************************************************
-//            Print Actual
-// *********************************************************************************************
-
-
-void printActualA(){
-  //  int hr = RTC.get(DS1307_HR,true);
-  //  int mn = RTC.get(DS1307_MIN,false);
-  //  int sc = RTC.get(DS1307_SEC,false);
-    /*
-    lcd.setCursor(4, 0);  
-    lcd.print(toDouble(hour));
-    lcd.print(":");
-    lcd.print(toDouble(minute));
-    lcd.print(":");
-    lcd.print(toDouble(second)); 
- */
-
-    lcd.setCursor(0, 1);
-    lcd.write(4);
-    BarS(DIMM_actual[0],1,1); 
-
-    lcd.setCursor(0, 2);
-    lcd.write(5);
-    BarS(DIMM_actual[1],1,2);
-
-    lcd.setCursor(8, 1);
-    lcd.write(6);
-    BarS(DIMM_actual[2],9,1);
-
-    lcd.setCursor(8, 2);
-    lcd.write(7);
-    BarS(DIMM_actual[3],9,2);
-
-  
 }
 
 
@@ -808,44 +740,6 @@ void printActualA(){
 // *********************************************************************************************
 //            Print time
 // *********************************************************************************************
-
-void printTime(){
-  flash_timer++;
-  // DateTime now = RTC.now(); // Obtiene la fecha y hora del RTC
-  if (flash_timer<=6) {
-    hour = RTC.get(DS1307_HR,true);
-    minute = RTC.get(DS1307_MIN,false);
-    second = RTC.get(DS1307_SEC,false);
-    monthDay =RTC.get(DS1307_DATE,false);
-    month = RTC.get(DS1307_MTH,false);
-    year = RTC.get(DS1307_YR,false);
-    lcd.setCursor(4, 1);  
-    lcd.print(toDouble(hour));
-    lcd.print(":");
-    lcd.print(toDouble(minute));
-    lcd.print(":");
-    lcd.print(toDouble(second));
-
-    lcd.setCursor(3, 2);  
-    lcd.print(year);
-    lcd.print("-");
-    lcd.print(toDouble(month));
-    lcd.print("-");
-    lcd.print(toDouble(monthDay));   
-  } 
-  if (flash_timer==7) {
-    flash_timer=0;
-    hour = RTC.get(DS1307_HR,true);
-    minute = RTC.get(DS1307_MIN,false);
-    second = RTC.get(DS1307_SEC,false);
-    lcd.setCursor(4, 1);  
-    lcd.print(toDouble(hour));
-    lcd.print(" ");
-    lcd.print(toDouble(minute));
-    lcd.print(" ");
-    lcd.print(toDouble(second));     
-  } 
-}
 
 
 void printTimeOnly(){
@@ -870,38 +764,21 @@ void printTimeOnly(){
   lcd.print(toDouble(monthDay));   
 }
 
-
-// *********************************************************************************************
-//            Pogas - pogu apstr'de
-// *********************************************************************************************
-
-void Pogas() {
-
-
-}
-
-
-
 // *********************************************************************************************
 //            EPROM data save and read
 // *********************************************************************************************
 
 
 void SaveEEPROM(int a){
-  // a light chanel 0 - 7, 8 moon
-
-  if (a<=7){ // save LED chanel
+  if (a<=7){ // save LED chanel data
     EEPROM.write((a*10), on_h[a]);
     EEPROM.write((1+a*10), on_m[a]);
     EEPROM.write((2+a*10), off_h[a]);
     EEPROM.write((3+a*10), off_m[a]);
     EEPROM.write((4+a*10), sunset[a]);
     EEPROM.write((5+a*10), DIMM_value[a]);
-    Serial.print(a);
-    Serial.print(" save : ");
-    Serial.println(DIMM_value[a]);
   }
-  if (a==8){// save moon data
+  if (a==8){// save moon light data
     EEPROM.write(80, DIMM_value[a]);
   }
   if (a==9){// save fan data
@@ -911,30 +788,20 @@ void SaveEEPROM(int a){
 }
 
 void ReadEEPROM(int a){
-  if (a<=7){ // save LED chanel
+  if (a<=7){ // load LED chanel data
     on_h[a] = EEPROM.read(a*10);
     on_m[a] = EEPROM.read(1+a*10);
     off_h[a] = EEPROM.read(2+a*10);
     off_m[a] = EEPROM.read(3+a*10);
     sunset[a] = EEPROM.read(4+a*10);
     DIMM_value[a] = EEPROM.read(5+a*10);
-    Serial.print(a);
-    Serial.print(" read : ");
-    Serial.println(DIMM_value[a]);
   }
-  if (a==8){// load moon data
+  if (a==8){// load moon light data
     DIMM_value[a] = EEPROM.read(80);
   }
   if (a==9){// load fan settings
     fan_on = EEPROM.read(81);
     fan_off = EEPROM.read(82);
-    
-    Serial.print("temp on : ");
-    Serial.println(fan_on);
-    Serial.print("temp off : ");
-    Serial.println(fan_off);
-    
-    
   }
   
   
@@ -943,28 +810,10 @@ void ReadEEPROM(int a){
 // *********************************************************************************************
 //            SetTemperature -  iestadisana
 // *********************************************************************************************
-void printTemp() {
-  lcd.setCursor(0, 1);
-  lcd.print("On: ");
-  lcd.print(fan_on);
-  lcd.print((char)223);
-  lcd.setCursor(8, 1);
-  lcd.print("Off: ");
-  lcd.print(fan_off);
-  lcd.print((char)223);
-  lcd.setCursor(1, 2);
-  lcd.print("Current: ");
-  //lcd.print(fan_off);
-  //lcd.print((char)223);
-  //lcd.print("C");
-  
-}
-
 
 void SetTemp(){
-  oSec='1111';
   flash=1;
-  switch (temp_mode) {
+  switch (cursor_pos) {
   case 0:
     flash_txt=toDouble(fan_on);
     break;
@@ -972,7 +821,7 @@ void SetTemp(){
     flash_txt=toDouble(fan_off);
     break;
   case 2:
-    // set Temperature
+    // save Temperature
     SaveEEPROM(9);
     menu_old=-1;
     menu_mode=0;
@@ -982,11 +831,11 @@ void SetTemp(){
     ShowMenu();
     break;      
   }
-  if (temp_mode<2) {
-    flash_line=temp_line[temp_mode];
-    flash_pos=temp_pos[temp_mode];
+  if (cursor_pos<2) {
+    flash_line=temp_line[cursor_pos];
+    flash_pos=temp_pos[cursor_pos];
     if (Button=='a') {
-      temp_mode++;
+      cursor_pos++;
       lcd.setCursor(flash_pos, flash_line);
       lcd.print(flash_txt);
     }
@@ -994,7 +843,7 @@ void SetTemp(){
   }
 
   if (qe1Move=='>') {
-    switch (temp_mode) {
+    switch (cursor_pos) {
     case 0:
       fan_on++;
       if (fan_on>40) fan_on=22;
@@ -1006,7 +855,7 @@ void SetTemp(){
     }
   }  
   else if (qe1Move=='<') {
-    switch (temp_mode) {
+    switch (cursor_pos) {
     case 0:
       fan_on--;
       if (fan_on<22) fan_on=40;
@@ -1022,15 +871,11 @@ void SetTemp(){
 
 
 
-
-
-
 // *********************************************************************************************
 //            SetDateTime - datuma un laika iestadisana
 // *********************************************************************************************
 void SetDateTime(){
-  oSec='1111';
-  switch (date_mode) {
+  switch (cursor_pos) {
     case 0:
     flash=1;
       flash_txt=toDouble(hour);
@@ -1055,11 +900,11 @@ void SetDateTime(){
       flash=0;
       RTC.stop();
       RTC.set(DS1307_SEC,second);        //set the seconds
-      RTC.set(DS1307_MIN,minute);     //set the minutes
-      RTC.set(DS1307_HR,hour);       //set the hours
-      RTC.set(DS1307_DATE,monthDay);       //set the date
-      RTC.set(DS1307_MTH,month);        //set the month
-      RTC.set(DS1307_YR,(year-2000));         //set the year
+      RTC.set(DS1307_MIN,minute);        //set the minutes
+      RTC.set(DS1307_HR,hour);           //set the hours
+      RTC.set(DS1307_DATE,monthDay);     //set the date
+      RTC.set(DS1307_MTH,month);         //set the month
+      RTC.set(DS1307_YR,(year-2000));    //set the year
   
       RTC.start();    
       // end
@@ -1070,12 +915,11 @@ void SetDateTime(){
       ShowMenu();
       break;      
   }
-  if (date_mode<6) {
-    flash_line=date_line[date_mode];
-    flash_pos=date_pos[date_mode];
+  if (cursor_pos<6) {
+    flash_line=date_line[cursor_pos];
+    flash_pos=date_pos[cursor_pos];
     if (Button=='a') {
-      date_mode++;
-
+      cursor_pos++;
       lcd.setCursor(flash_pos, flash_line);
       lcd.print(flash_txt);
     }
@@ -1083,7 +927,7 @@ void SetDateTime(){
   }
 
   if (qe1Move=='>') {
-    switch (date_mode) {
+    switch (cursor_pos) {
     case 0:
       hour++;
       if (hour>23) hour=0;
@@ -1110,7 +954,7 @@ void SetDateTime(){
     }
   }  
   else if (qe1Move=='<') {
-    switch (date_mode) {
+    switch (cursor_pos) {
     case 0:
       hour--;
       if (hour<0) hour=23;
@@ -1144,39 +988,15 @@ void SetDateTime(){
 // *********************************************************************************************
 
 void printBARs(){
-
-  if (DIMM_value[cha_incr+0]!=DIMM_temp[cha_incr+0]){
-    lcd.setCursor(0, 1);
-    lcd.write(4);
-    BarS(DIMM_value[cha_incr+0],1,1); 
-    DIMM_temp[cha_incr+0]=DIMM_value[cha_incr+0];
-    analogWrite(DIMM_pin[cha_incr+0], DIMM_value[cha_incr+0]);
-  }
-
-
-  if (DIMM_value[cha_incr+1]!=DIMM_temp[cha_incr+1]){
-    lcd.setCursor(0, 2);
-    lcd.write(5);
-    BarS(DIMM_value[cha_incr+1],1,2);
-    DIMM_temp[cha_incr+1]=DIMM_value[cha_incr+1];
-    analogWrite(DIMM_pin[cha_incr+1], DIMM_value[cha_incr+1]);
-  }
-
-  if(DIMM_value[cha_incr+2]!=DIMM_temp[cha_incr+2]) { 
-    lcd.setCursor(8, 1);
-    lcd.write(6);
-    BarS(DIMM_value[cha_incr+2],9,1);
-    DIMM_temp[cha_incr+2]=DIMM_value[cha_incr+2];
-    analogWrite(DIMM_pin[cha_incr+2], DIMM_value[cha_incr+2]);
-  }
-
-  if (DIMM_value[cha_incr+3]!=DIMM_temp[cha_incr+3]){
-    lcd.setCursor(8, 2);
-    lcd.write(7);
-    BarS(DIMM_value[cha_incr+3],9,2);
-    DIMM_temp[cha_incr+3]=DIMM_value[cha_incr+3];
-    analogWrite(DIMM_pin[cha_incr+3], DIMM_value[cha_incr+3]);
-  }
+  for (int i=0; i<=3; i++){  
+    if (DIMM_value[cha_incr+i]!=DIMM_temp[cha_incr+i]){
+      lcd.setCursor(dimm_pos[i],dimm_line[i]);
+      lcd.write(4+i);
+      BarS(DIMM_value[cha_incr+i],dimm_pos[i]+1,dimm_line[i]); 
+      DIMM_temp[cha_incr+i]=DIMM_value[cha_incr+i];
+      analogWrite(DIMM_pin[cha_incr+i], DIMM_value[cha_incr+i]);
+    }  
+  }  
 }
 
 // *********************************************************************************************
@@ -1211,24 +1031,7 @@ void BarL(int a) {// a cik
     lcd.write(" ");
   } 
 
-/*
-  lcd.setCursor(0, 2);
-  if (DIMM_increment==1) {
-    lcd.write(char_small_step);
-  } 
-  else {
-    lcd.write(char_big_step);
-  }
-  lcd.print(a);
-  lcd.print(" ");
-*/
-  /*   vecais temperaturas attelosanai
-   int tmpa=int(temp[DIMM_active]);
-   lcd.setCursor(6, 2);
-   lcd.print(tmpa);
-   lcd.write(223); 
-   */
-  
+
   
   if (menu_mode!=3) { 
     lcd.setCursor(10, 2);
@@ -1273,7 +1076,7 @@ void BarS(int a, int b, int c) {// a cik
 // *********************************************************************************************
 //            Darbs ar BAR pirmatneja ekrana iestadisana
 // *********************************************************************************************
-void DimmingStart(){
+void DIMM_Init(){
   cha=0;
 
   lcd.setCursor(0, 0);
@@ -1319,15 +1122,13 @@ void DimmingBIGStart(){
 
 }
 
-
-
 // *********************************************************************************************
 //            Darbs ar mazo BAR
 // *********************************************************************************************
 void Dimming(){
 
   if (Button=='a') {   // ENCODER BUTTON
-    lcd.setCursor(dimmP[cha], dimmL[cha]);
+    lcd.setCursor(dimm_pos[cha], dimm_line[cha]);
     lcd.write(cha+4);
     // rakstam krasas nosaukumu
     lcd.setCursor(6, 0);
@@ -1341,7 +1142,6 @@ void Dimming(){
     if (cha>=4) {
       menu_old=-1;
       menu_mode=0;
-      
       Set1();
       SetBar();
       SetMenu();
@@ -1362,8 +1162,6 @@ void Dimming(){
     }
   }
 
-
-
   if (qe1Move=='>') {
     DIMM_value[cha_incr+cha]=DIMM_value[cha_incr+cha]+DIMM_increment;
     if (DIMM_value[cha_incr+cha]>255) {
@@ -1375,17 +1173,14 @@ void Dimming(){
     if (DIMM_value[cha_incr+cha]<0) {
       DIMM_value[cha_incr+cha]=0;
     }    
-
   }  
 
   if (cha<4) {
     printBARs();
     lcd.setCursor(13, 0);
     lcd.print(toTriple(DIMM_value[cha_incr+cha]));
-
-
-    flash_pos=dimmP[cha];
-    flash_line=dimmL[cha];
+    flash_pos=dimm_pos[cha];
+    flash_line=dimm_line[cha];
     flash_txt=String(cha+4);
     flash=1;
   }
@@ -1402,16 +1197,13 @@ void Dimming(){
 void Dimming_big(){
  
   if (Button=='a') {   // ENCODER BUTTON
-    timer_mode++;
+    cursor_pos++;
     if (menu_mode==3) { // it kaa prueksh moon light ieprieks atslegsana
-    //Serial.println(cha);
-     timer_mode=6;
+     cursor_pos=6;
     } else {
-    
-      if (timer_mode>0) {
-        flash_pos=timer_pos[timer_mode-1];
-        flash_line=timer_line[timer_mode-1];
-     
+      if (cursor_pos>0) {
+        flash_pos=timer_pos[cursor_pos-1];
+        flash_line=timer_line[cursor_pos-1];
      // atkartoti simejam laikus lai atjaunotu flash rezimaa neuzssiimeetus numurus
             lcd.setCursor(0, 1);
             lcd.print("Day: ");
@@ -1422,13 +1214,10 @@ void Dimming_big(){
             lcd.print(toDouble(off_h[cha]));
             lcd.print(":");
             lcd.print(toDouble(off_m[cha]));   
-        
       }
     }
-
-
-    
-    switch (timer_mode) {
+  
+    switch (cursor_pos) {
         case 1:
           CLS();
       
@@ -1472,7 +1261,7 @@ void Dimming_big(){
           break;            
     }
 
-    if (timer_mode>=6) {
+    if (cursor_pos>=6) {
       SaveEEPROM(cha);
       menu_old=-1;
       menu_mode=0;
@@ -1482,7 +1271,7 @@ void Dimming_big(){
     }     
   }
 
-    if (timer_mode==0) { // set LED level with bar
+    if (cursor_pos==0) { // set LED level with bar
       if (Button=='3') { // fine tunning on/off
         lcd.setCursor(0, 2);
         if (DIMM_increment==1) {
@@ -1496,7 +1285,7 @@ void Dimming_big(){
       }
     }  
     if (qe1Move=='>') {
-      switch (timer_mode) {
+      switch (cursor_pos) {
         case 0:
           DIMM_value[cha]=DIMM_value[cha]+DIMM_increment;
           if (DIMM_value[cha]>255) {
@@ -1531,7 +1320,7 @@ void Dimming_big(){
       }   
     }  
     else if (qe1Move=='<') {
-      switch (timer_mode) {
+      switch (cursor_pos) {
         case 0:
           DIMM_value[cha]=DIMM_value[cha]-DIMM_increment;
           if (DIMM_value[cha]<0) {
@@ -1566,7 +1355,7 @@ void Dimming_big(){
       }
     }
     
-    if (timer_mode==0) {
+    if (cursor_pos==0) {
       if (DIMM_value[cha]!=DIMM_temp[cha]){
         BarL(DIMM_value[cha]);
         DIMM_temp[cha]=DIMM_value[cha];
@@ -1574,8 +1363,6 @@ void Dimming_big(){
       }
       lcd.setCursor(1, 2);
       lcd.print(toTriple(DIMM_value[cha]));
-     // flash_pos=dimmP[0];
-     // flash_line=dimmL[0];
       
       flash_pos=0;
       flash_line=1;
@@ -1597,22 +1384,20 @@ void Watch(){
   long now_sec;
   long tmp_sunset;
 
-// fot internal
+// for internal
   long DIMM_long;
     
   float tmp;
   
   //int out;
   int actual_led;
-  int now_mode=0; // 0 - normal, 1 sun Up, 2 sun Down
+  int now_mode=0; // 0 - normal, 1 sun Up, 2 sun Down fpr indicate sunset/sundown
 
 
   hour2 = RTC.get(DS1307_HR,true);
   minute2 = RTC.get(DS1307_MIN,false);
   second2 = RTC.get(DS1307_SEC,false);
-
-
-  now_sec=((long(hour2)*3600)+(long(minute2)*60))+long(second2);
+  now_sec=((long(hour2)*3600)+(long(minute2)*60))+long(second2); // cout seconds
   
   // for all defined timer
   for (int i=0; i<=7; i++){
@@ -1707,14 +1492,8 @@ void Watch(){
       if (manual_on==2) { analogWrite(DIMM_pin[i], DIMM_actual[i]); }
       if (manual_on==0) { analogWrite(DIMM_pin[i], 0); }
       if (manual_on==1) { analogWrite(DIMM_pin[i], DIMM_value[i]); }
-      
-      
-      
+    
       if (menu_mode==-2) {
-        //if (manual_on==2) { actual_led=DIMM_actual[i]; }
-        //if (manual_on==0) { actual_led=0; }
-        //if (manual_on==1) { actual_led=DIMM_value[i]; }
-        
         lcd.setCursor(LED_pos[i], LED_line[i]);
         lcd.print(toTriple(DIMM_actual[i]));
         
@@ -1741,62 +1520,60 @@ void Watch(){
 // *********************************************************************************************
 void Termo() {
   
-if (millis() > (temp_time+1000)) {
-  byte i;
-  byte present = 0;
-  byte type_s;
-  byte data[12];
-  byte addr[8];
-  float celsius, fahrenheit;
-  
-  if ( !ds.search(addr)) {
-    temp_counter=0;
-    ds.reset_search();
-    return;
-  }
-
-  ds.reset();
-  ds.select(addr);
-  ds.write(0x44, 1);        // start conversion, with parasite power on at the end
-  
- 
-  present = ds.reset();
-  ds.select(addr);    
-  ds.write(0xBE);         // Read Scratchpad
-  for ( i = 0; i < 9; i++) {           // we need 9 bytes
-    data[i] = ds.read();
-  }
-  int16_t raw = (data[1] << 8) | data[0];
-  if (type_s) {
-    raw = raw << 3; // 9 bit resolution default
-    if (data[7] == 0x10) {
-      // "count remain" gives full 12 bit resolution
-      raw = (raw & 0xFFF0) + 12 - data[6];
+  if (millis() > (temp_time+1000)) {
+    byte i;
+    byte present = 0;
+    byte type_s;
+    byte data[12];
+    byte addr[8];
+    float celsius, fahrenheit;
+    
+    if ( !ds.search(addr)) {
+      temp_counter=0;
+      ds.reset_search();
+      return;
     }
-  } else {
-    byte cfg = (data[4] & 0x60);
-    // at lower res, the low bits are undefined, so let's zero them
-    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
-    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
-    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
-    //// default is 12 bit resolution, 750 ms conversion time
-  }
-  celsius = (float)raw / 16.0;
-  temp[temp_counter]=celsius;
-  temp_counter++;
-  temp_time=millis();
+  
+    ds.reset();
+    ds.select(addr);
+    ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+    
+   
+    present = ds.reset();
+    ds.select(addr);    
+    ds.write(0xBE);         // Read Scratchpad
+    for ( i = 0; i < 9; i++) {           // we need 9 bytes
+      data[i] = ds.read();
+    }
+    int16_t raw = (data[1] << 8) | data[0];
+    if (type_s) {
+      raw = raw << 3; // 9 bit resolution default
+      if (data[7] == 0x10) {
+        // "count remain" gives full 12 bit resolution
+        raw = (raw & 0xFFF0) + 12 - data[6];
+      }
+    } else {
+      byte cfg = (data[4] & 0x60);
+      // at lower res, the low bits are undefined, so let's zero them
+      if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+      else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+      else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+      //// default is 12 bit resolution, 750 ms conversion time
+    }
+    celsius = (float)raw / 16.0;
+    temp[temp_counter]=celsius;
+    temp_counter++;
+    temp_time=millis();
   
   // contriol Temp
- if (temp[0]>=fan_on) {
-   digitalWrite(pinFan, HIGH);
-   FAN_status=1;
- }
- if (temp[0]<=fan_off) {
-   digitalWrite(pinFan, LOW);
-   FAN_status=0;
- }
-  
-  
+   if (temp[0]>=fan_on) {
+     digitalWrite(pinFAN, HIGH);
+     FAN_status=1;
+   }
+   if (temp[0]<=fan_off) {
+     digitalWrite(pinFAN, LOW);
+     FAN_status=0;
+   }
 }
 
   
