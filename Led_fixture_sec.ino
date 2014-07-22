@@ -12,51 +12,49 @@
 
 #include "Arduino.h"
 
-// aquacontroller PIN
-/* Digital In.Out
-  1
-  2 - Night LED PWM Light
- 
-  3 - LED
-  4 - LED
-  5 - LED
-  6 - LED
- 
-  7 - LED Royal Blue
-  8 - LED Blue
-  9 - LED Royal Blue ..
- 10 - LED White
- 
- 11 - PWM Encoder A
- 12 - PWM Encoder B
- 
- 13 - PWM LCD Screen background
- 
- 20 - I2C SDA
- 21 - I2C SCL
- 
- 23 - Keyboard cols 1
- 24 - Keyboard cols 2
- 25 *
- 26 - Keyboard cols 3
- 27 - Keyboard rows 1
- 28 - 1-Wire Datas Thermometer
- 29 - Keyboard rows 2
- 
- 30 - Fan on/off
- 32
- 
- 46 - LCD CSB (38)
- 48 - LCD RS (39)
- 50 - LCD CLK (29)
- 52 - LCD SI (28)
- 
- Analog PIN
- 3 - Current Sensor 1
- 4 - Current Sensor 2
- 14 - Voltage sensor 1
- 15 - voltage sensor 2
- */
+/* aquacontroller PIN
+
+Digital PIN
+1
+2 - Night LED PWM Light
+3 - LED
+4 - LED
+5 - LED
+6 - LED
+7 - LED Royal Blue
+8 - LED Blue
+9 - LED Royal Blue ..
+10 - LED White
+
+11 - PWM Encoder A
+12 - PWM Encoder B
+
+13 - PWM LCD Screen background
+
+20 - I2C SDA
+21 - I2C SCL
+
+23 - Keyboard cols 1
+25 - Keyboard cols 2
+26 - Keyboard cols 3
+27 - Keyboard rows 1
+28 - 1-Wire Datas Thermometer
+29 - Keyboard rows 2
+
+30 - Fan on/off
+
+31 - LCD SI (28)
+33 - LCD CLK (29)
+35 - LCD CSB (38)
+37 - LCD RS (39)
+
+Analog PIN
+3 - Current Sensor 1
+4 - Current Sensor 2
+14 - Voltage sensor 1
+15 - voltage sensor 2
+*/
+
 
 // *********************************************************************************************
 //            EPROM Memory
