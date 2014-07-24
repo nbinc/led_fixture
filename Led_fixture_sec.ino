@@ -4,6 +4,7 @@
 // 2014.06.20 v. 1.2 - partaisiju DIMMeasanu uz 1 sekundes intervalu
 // 2014.07.19 v. 2.0 - izlaboju lielu kludu DIMMesanas algoritma, pieliku DIMM rezima indikaciju
 // 2014.07.21 v. 2.1 - koda optimizacija, iznemtas liekas strukturas un mainigie
+// 2014.07.24 v. 2.11 - pieliku LED atslegsanu ja parkarst radiators
 
 // ~/Documents/Arduino/350W LED Fixture LDD/led_fixture
 
@@ -179,8 +180,10 @@ int cursor_pos=0; // kura pozicija atrodas kursots
 // ventilatora izvads
 int pinFAN = 30;
 int fan_on=0; //ReadEEPROM(9);
-int fan_off=0;//ReadEEPROM(9); 
-int FAN_status=0;
+int fan_off=0; //ReadEEPROM(9);
+int FAN_status=0; // 0-off, 1-on
+int fan_warning=40; // heatsink temperature warning, -50% light power
+int fan_alert=50; // heatsink temperature alert, power off all LEDs
 
 // koordinates screen saver rezima LED knalu statusiem,
 // kad visi uzreiz uz ekr'na
@@ -255,6 +258,7 @@ char* menu_text[] ={
 
   "White",  //8
   "Royal Blue..", //9 
+
   "Blue", // 10
   "Royal Blue.", //11
   "Green", //12
@@ -745,6 +749,7 @@ void printTimeOnly(){
   second = RTC.get(DS1307_SEC,false);
   monthDay =RTC.get(DS1307_DATE,false);
   month = RTC.get(DS1307_MTH,false);
+
   year = RTC.get(DS1307_YR,false);
   lcd.setCursor(4, 1);  
   lcd.print(toDouble(hour));
@@ -991,7 +996,7 @@ void printBARs(){
       lcd.write(4+i);
       BarS(DIMM_value[cha_incr+i],dimm_pos[i]+1,dimm_line[i]); 
       DIMM_temp[cha_incr+i]=DIMM_value[cha_incr+i];
-      analogWrite(DIMM_pin[cha_incr+i], DIMM_value[cha_incr+i]);
+      aWrite(DIMM_pin[cha_incr+i], DIMM_value[cha_incr+i]);
     }  
   }  
 }
@@ -1356,7 +1361,7 @@ void Dimming_big(){
       if (DIMM_value[cha]!=DIMM_temp[cha]){
         BarL(DIMM_value[cha]);
         DIMM_temp[cha]=DIMM_value[cha];
-        analogWrite(DIMM_pin[cha], DIMM_value[cha]);
+        aWrite(DIMM_pin[cha], DIMM_value[cha]);
       }
       lcd.setCursor(1, 2);
       lcd.print(toTriple(DIMM_value[cha]));
@@ -1486,9 +1491,9 @@ void Watch(){
         }
       }
 
-      if (manual_on==2) { analogWrite(DIMM_pin[i], DIMM_actual[i]); }
-      if (manual_on==0) { analogWrite(DIMM_pin[i], 0); }
-      if (manual_on==1) { analogWrite(DIMM_pin[i], DIMM_value[i]); }
+      if (manual_on==2) { aWrite(DIMM_pin[i], DIMM_actual[i]); }
+      if (manual_on==0) { aWrite(DIMM_pin[i], 0); }
+      if (manual_on==1) { aWrite(DIMM_pin[i], DIMM_value[i]); }
     
       if (menu_mode==-2) {
         lcd.setCursor(LED_pos[i], LED_line[i]);
@@ -1509,6 +1514,20 @@ void Watch(){
 
   } // for 
 
+}
+
+// *********************************************************************************************
+//            LED light analogWrite emulate
+// *********************************************************************************************
+void aWrite (pin,value){
+ if (temp[0]>=fan_warning){ // 50% of LED's power
+ value=value/2;
+ }
+
+ if (temp[0]>=fan_alert){ // turn off all LED's
+ value=0;
+ }
+ analogWrite(pin, value);
 }
 
 
