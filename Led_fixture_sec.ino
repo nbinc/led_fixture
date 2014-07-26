@@ -174,6 +174,9 @@ int timer_pos[]= { 5, 8,11,14, 8};
 int temp_line[]={ 1, 1};
 int temp_pos[]= { 4, 13};
 
+int overheat_line[]={ 1, 1};
+int overheat_pos[]= { 5, 13};
+
 
 int cursor_pos=0; // kura pozicija atrodas kursots
 
@@ -182,8 +185,8 @@ int pinFAN = 30;
 int fan_on=0; //ReadEEPROM(9);
 int fan_off=0; //ReadEEPROM(9);
 int FAN_status=0; // 0-off, 1-on
-int fan_warning=40; // heatsink temperature warning, -50% light power
-int fan_alert=50; // heatsink temperature alert, power off all LEDs
+int fan_warning=0; // heatsink temperature warning, -50% light power
+int fan_alert=0; // heatsink temperature alert, power off all LEDs
 
 // koordinates screen saver rezima LED knalu statusiem,
 // kad visi uzreiz uz ekr'na
@@ -251,8 +254,8 @@ char* menu_text[] ={
   "LED A",        //1
   "LED B", //2
   "LED Moon",        //3
-  "Temperature",         //4
-  "Setup",    //5
+  "Fan Control",         //4
+  "LED Control",     //5
   "Date/Time", //6
   "Manual mode", //7
 
@@ -384,7 +387,7 @@ void setup() {
     pinMode(DIMM_pin[i], OUTPUT);
   }
   ReadEEPROM(9); // load fan temperature data
-
+  ReadEEPROM(10); // load overheat temperature data
   SetMenu();
 
 }
@@ -488,6 +491,27 @@ void loop() {
               lcd.print("Current: ");
           }
 
+          if (menu_mode==5) { // LED overheating  settup
+            lcd.setCursor(0, 0);
+            lcd.print(flash_txt);
+            
+            temperature_mode=1;
+            cursor_pos=0;
+              // print mode screen
+              lcd.setCursor(0, 1);
+              lcd.print("50%: ");
+              lcd.print(fan_warning);
+              lcd.print((char)223);
+              lcd.setCursor(9, 1);
+              lcd.print("0%: ");
+              lcd.print(fan_alert);
+              lcd.print((char)223);
+              lcd.setCursor(1, 2);
+              lcd.print("Current: ");
+          }
+
+
+
 
           if (menu_mode==6) { // date/time
             lcd.setCursor(0, 0);
@@ -511,8 +535,10 @@ void loop() {
     } else if (menu_mode==3) {                // LED Moon settup
         cha=8;
         Dimming_big();
-    } else if (menu_mode==4) {                                 // set temperature mode
-      SetTemp();     
+    } else if (menu_mode==4) {                                 // set Fan setting
+      SetTemp();
+    } else if (menu_mode==5) {                                 // set overheat temperatures
+      SetOverheat();       
     } else if (menu_mode==6) {                                 // set date/time mode
       SetDateTime();
     } else if (menu_mode>=8 || menu_mode<=15) {                // individual chanel setup
@@ -572,8 +598,6 @@ String toTriple(int a){
 // *********************************************************************************************
 //            Manas proceduras
 // *********************************************************************************************
-
-
 
 // *********************************************************************************************
 //            Ekrana 2 pedeju liniju attirisana
@@ -788,7 +812,11 @@ void SaveEEPROM(int a){
   if (a==9){// save fan data
     EEPROM.write(81,fan_on);
     EEPROM.write(82,fan_off);
-  }  
+  }
+  if (a==10){// save overheat data
+    EEPROM.write(83,fan_warning);
+    EEPROM.write(84,fan_alert);
+  }   
 }
 
 void ReadEEPROM(int a){
@@ -807,12 +835,15 @@ void ReadEEPROM(int a){
     fan_on = EEPROM.read(81);
     fan_off = EEPROM.read(82);
   }
-  
+  if (a==10){// load overheat settings
+    fan_warning = EEPROM.read(83);
+    fan_alert = EEPROM.read(84);
+  } 
   
 }
 
 // *********************************************************************************************
-//            SetTemperature -  iestadisana
+//            Set Temperature / Fan settings
 // *********************************************************************************************
 
 void SetTemp(){
@@ -867,6 +898,69 @@ void SetTemp(){
     case 1:
       fan_off--;
       if (fan_off<22) fan_off=40;
+      break;
+    }
+  }
+
+}
+
+
+// *********************************************************************************************
+//            Set Overhear Temperature -  iestadisana
+// *********************************************************************************************
+
+void SetOverheat(){
+  flash=1;
+  switch (cursor_pos) {
+  case 0:
+    flash_txt=toDouble(fan_warning);
+    break;
+  case 1:
+    flash_txt=toDouble(fan_alert);
+    break;
+  case 2:
+    // save "Overheat"
+    SaveEEPROM(10);
+    menu_old=-1;
+    menu_mode=0;
+    lcd.clear();
+    temperature_mode=0;
+    SetMenu();
+    ShowMenu();
+    break;      
+  }
+  if (cursor_pos<2) {
+    flash_line=overheat_line[cursor_pos];
+    flash_pos=overheat_pos[cursor_pos];
+    if (Button=='a') {
+      cursor_pos++;
+      lcd.setCursor(flash_pos, flash_line);
+      lcd.print(flash_txt);
+    }
+
+  }
+
+  if (qe1Move=='>') {
+    switch (cursor_pos) {
+    case 0:
+      fan_warning++;
+      if (fan_warning>70) fan_warning=22;
+      break;
+    case 1:
+      fan_alert++;
+      if (fan_alert>70) fan_alert=22;
+      break;
+    }
+  }  
+  else if (qe1Move=='<') {
+    switch (cursor_pos) {
+    case 0:
+      fan_warning--;
+      if (fan_warning<22) fan_warning=70;
+      break;
+    case 1:
+      fan_alert--;
+      if (fan_alert<22) fan_alert=70;
       break;
     }
   }
@@ -1379,7 +1473,7 @@ void Dimming_big(){
 
 
 // *********************************************************************************************
-//            LDE kanalu Taimeru darbibas
+//            LED kanalu Taimeru darbibas
 // *********************************************************************************************
 
 void Watch(){
