@@ -5,32 +5,34 @@
 // 2014.07.19 v. 2.0 - izlaboju lielu kludu DIMMesanas algoritma, pieliku DIMM rezima indikaciju
 // 2014.07.21 v. 2.1 - koda optimizacija, iznemtas liekas strukturas un mainigie
 // 2014.07.24 v. 2.11 - pieliku LED atslegsanu ja parkarst radiators
+// 2014.12.20 v. 2.12 - pielaboju DIMM atzimes +/- uz ekrana, pamainiju on/off/Auto secibu
+// 2014.12.27 v. 3.0 - now 12 bit !!!
 
-// ~/Documents/Arduino/350W LED Fixture LDD/led_fixture
+// ~/Documents/Arduino/! Mani projekti/Led_fixture_12_sec/
 
-#define TLC       0    // set to 1 if using 12bit LED DIMMing
+#define TLC       1    // set to 1 if using 12bit LED DIMMing
 #define SERIAL    0    // set to 1 if need debug data serial output
 
 #include "Arduino.h"
 
 /* aquacontroller PIN
 
-Digital PIN
+Digital PIN (8 bit/12 bit)
 1
-2 - Night LED PWM Light
-3 - LED
-4 - LED
-5 - LED
-6 - LED
-7 - LED Royal Blue
-8 - LED Blue
-9 - LED Royal Blue ..
-10 - LED White
+2 - Night LED PWM Light / PWM LCD Screen background
+3 - LED / =
+4 - LED / =
+5 - LED / =
+6 - LED / =
+7 - LED Royal Blue / =
+8 - LED Blue / PWM Encoder A
+9 - LED Royal Blue .. / Tlc5940 GSCLK
+10 - LED White / PWM Encoder B
 
-11 - PWM Encoder A
-12 - PWM Encoder B
+11 - PWM Encoder A / Tlc5940 XLAT
+12 - PWM Encoder B / Tlc5940 BLANC
 
-13 - PWM LCD Screen background
+13 - PWM LCD Screen background / -
 
 20 - I2C SDA
 21 - I2C SCL
@@ -48,6 +50,9 @@ Digital PIN
 33 - LCD CLK (29)
 35 - LCD CSB (38)
 37 - LCD RS (39)
+
+51 - / Tlc5940 SIN
+52 - / Tlc5940 SCLK
 
 Analog PIN
 3 - Current Sensor 1
@@ -70,7 +75,6 @@ Analog PIN
 // nothing worked properly yet
 #if TLC
   #include "Tlc5940.h"
-
 #endif 
 
 // *********************************************************************************************
@@ -120,7 +124,13 @@ float amps2=0;
 // A -> pin 11 (need PWM)
 // B -> pin 12 (need PWM)
 #include <QuadEncoder.h>
-QuadEncoder qe(12,11);
+
+#if TLC
+  QuadEncoder qe(8,10); //11, 12
+#else
+  QuadEncoder qe(11,12);
+#endif
+
 int qe1Move=0; // rotary encoder last values
 
 
@@ -213,7 +223,7 @@ int sunset[]={10,10,10,10,10,10,10,10};
 
 // initialize the library with the numbers of the interface pins
 DogLcd lcd(31, 33, 37, 35); //SI, CLK, RS, CSB
-int pinLCD=13; // LCD background LED pin
+int pinLCD=2; // LCD background LED pin //13
 
 // custom Character for DOGM 16x3 display
 byte progress[8] = {  B00000,  B11011,  B11011,  B11011,  B11011,  B11011,  B00000}; // ||
@@ -251,17 +261,16 @@ int null=0;
 
 // mainigie prieks menu
 char* menu_text[] ={
-  "LED A",        //1
-  "LED B", //2
-  "LED Moon",        //3
-  "Fan Control",         //4
-  "LED Control",     //5
-  "Date/Time", //6
-  "Manual mode", //7
+  "LED A",         //1
+  "LED B",         //2
+  "LED Moon",      //3
+  "Fan Control",   //4
+  "LED Control",   //5
+  "Date/Time",     //6
+  "Manual mode",   //7
 
-  "White",  //8
+  "White",         //8
   "Royal Blue..", //9 
-
   "Blue", // 10
   "Royal Blue.", //11
   "Green", //12
@@ -300,7 +309,42 @@ int lcd_min=50;  // min (darknes) :CD bright -> go to screen slip mode
 // white, Royal Blue.., Blue, Royal Blue.,
 // Red, Green, UV, Royal Blue
 
-int DIMM_pin[]=     { 10,  9,  8,  7,  6,  5,  4,  3,  2 };
+//
+
+
+
+#if TLC
+  int DIMM_pin[]=   {  4,  5,  7,  8, 10, 13, 14, 11, 2 };
+  const unsigned int PWMTable[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
+17,18,19,20,21,22,23,24,25,26,27,28,29,
+30,31,32,33,34,35,36,37,38,39,40,41,42,
+43,44,45,46,47,48,49,50,51,52,53,54,55,
+56,57,58,59,60,61,62,63,64,65,66,68,70,
+72,74,76,78,80,82,84,86,88,90,92,94,96,
+98,100,102,104,106,108,111,114,117,120,
+123,126,129,132,135,138,141,144,147,150,
+153,157,161,165,169,173,177,181,185,189,
+193,197,201,206,211,216,221,226,231,237,
+243,249,255,261,267,273,279,285,292,299,
+306,313,320,327,335,343,351,359,367,375,
+384,393,402,412,422,432,442,452,462,473,
+484,495,507,519,531,543,555,567,580,593,
+606,620,634,648,663,678,693,709,725,741,
+758,775,792,810,829,848,868,888,908,929,
+950,971,993,1015,1038,1061,1085,1109,1134,
+1160,1186,1213,1240,1268,1297,1326,1356,
+1387,1418,1450,1483,1517,1551,1586,1622,
+1659,1697,1736,1775,1815,1856,1898,1941,
+1985,2030,2076,2123,2171,2220,2270,2321,
+2374,2427,2480,2533,2586,2639,2692,2745,
+2798,2851,2904,2957,3010,3063,3116,3169,
+3223,3277,3331,3385,3440,3495,3550,3605,
+3660,3716,3772,3828,3884,3937,3990,4095};
+#else
+  int DIMM_pin[]=   { 10,  9,  8,  7,  6,  5,  4,  3,  2 };
+#endif
+
+
 int DIMM_value[]=   { 76,128,220,150, 20,100,200, 36,128 };
 int DIMM_actual[]=  {  0,  0,  0,  0,  0,  0,  0,  0,128 };
 int DIMM_temp[]=    { -1, -1, -1, -1, -1, -1, -1, -1, -1 };
@@ -351,6 +395,11 @@ void setup() {
     Serial.println('Serial begin'); 
   #endif   
   
+#if TLC
+  Tlc.init();
+#endif 
+
+
 
 
 // pin modes
@@ -358,7 +407,7 @@ void setup() {
   pinMode(pinFAN, OUTPUT);      // FAN on/off
 
   // set up the LCD
-  lcd.begin(DOG_LCD_M163, 0x27); // contrast from 0x1A to 0x28
+  lcd.begin(DOG_LCD_M163, 0x28); // contrast from 0x1A to 0x28
   analogWrite(pinLCD, lcd_max);  // set LCD display background light to maximum 
 
   // create custom char
@@ -400,6 +449,13 @@ void loop() {
   // input devices scan
   // encoder
   qe1Move=qe.tick();
+
+   #if SERIAL
+     if (qe1Move=='<' || qe1Move=='>') {
+       Serial.println(qe1Move);
+     }
+   #endif
+
   
   // keypad
   key = kpd.getKey();
@@ -407,7 +463,9 @@ void loop() {
   if(key) { // same as if (key != NO_KEY)
     Button=key;
     timeout=0;
-    //Serial.println(Button);
+   #if SERIAL
+     Serial.println(Button);
+   #endif
   }  
   // rotary encoder
   if (qe1Move=='>') timeout=0;
@@ -437,8 +495,8 @@ void loop() {
   } 
 
   if (Button=='2') { // manual modes
-      manual_on++;
-      if (manual_on>2) manual_on=0;
+      manual_on--;
+      if (manual_on<0) manual_on=2;
       manual_modes_show();
   } 
 
@@ -1551,12 +1609,12 @@ void Watch(){
          } else {  
   	    DIMM_actual[i]=(int) DIMM_long;
 
-// normals sunrise  
+// normals sunset  
             if (now_sec<on_sec+tmp_sunset && now_sec>off_sec){                 
                  tmp=(((float)DIMM_long/(float)tmp_sunset)*(float)((on_sec+tmp_sunset)-now_sec));
       	         DIMM_long = DIMM_long -(long) tmp;
                  DIMM_actual[i]=(int) DIMM_long;
-                 now_mode=2;
+                 now_mode=1;
               }
 
 // sunsets, kas turpinas pec pusnakts (iesledz 23.55, izsledz 02.00, sunrise 20)
@@ -1567,13 +1625,13 @@ void Watch(){
                   now_mode=1;
               }
               
-// normals sunset              
+// normals sundown              
 	      if (now_sec>=off_sec-tmp_sunset && now_sec<off_sec){                
                   tmp=((float)DIMM_long/(float)tmp_sunset)*(float)((off_sec-tmp_sunset)-now_sec);
                   tmp=abs(tmp);
       	          DIMM_long = DIMM_long -(long) tmp;
                   DIMM_actual[i]=(int) DIMM_long;
-                  now_mode=1;
+                  now_mode=2;
               }
               	
 // sundowns, kas jasak rekinat pirms pusnakts (iesledz 20.00 , izsledz 00.10 un sunrise 15)
@@ -1608,7 +1666,12 @@ void Watch(){
       }
       
 
+
   } // for 
+  
+  #if TLC
+    Tlc.update(); 
+  #endif
 
 }
 
@@ -1619,13 +1682,20 @@ void Watch(){
 // *********************************************************************************************
 void aWrite (int pin, int value){
  if (temp[0]>=fan_warning){ // 50% of LED's power
- value=value/2;
+   value=value/2;
  }
 
  if (temp[0]>=fan_alert){ // turn off all LED's
- value=0;
+   value=0;
  }
- analogWrite(pin, value);
+ 
+  #if TLC
+    Tlc.set(pin, PWMTable[value]); //*16);
+    //Tlc.update(); 
+  #else
+    analogWrite(pin, value);
+  #endif
+ 
 }
 
 
@@ -1825,3 +1895,5 @@ void manual_modes_show(){
         lcd.write(255);
       } 
 }
+
+
